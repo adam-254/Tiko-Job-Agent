@@ -14,6 +14,18 @@ def emit(type: str, **kwargs):
     if _emit:
         _emit({"type": type, **kwargs})
 
+# Shared Chromium launch args — required for containerised/sandboxed envs (Render, Docker)
+CHROMIUM_ARGS = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--single-process",
+]
+
+async def _new_browser(p):
+    return await p.chromium.launch(headless=True, args=CHROMIUM_ARGS)
+
 
 # ---------------------------------------------------------------------------
 # Remotive — public JSON API
@@ -183,7 +195,7 @@ async def _scrape_myjobmag_async(query: str, max_results: int) -> list[dict]:
     category = next((slug for word, slug in MYJOBMAG_CATEGORIES.items() if word in kw), None)
     emit("status", site="myjobmag", msg="Launching headless Chromium...")
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await _new_browser(p)
         page = await browser.new_page()
         try:
             url = f"{BASE_URL}/jobs-by-field/{category}" if category else f"{BASE_URL}/jobs"
@@ -242,7 +254,7 @@ async def _scrape_brightermonday_async(query: str, max_results: int) -> list[dic
     seen_links = set()
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await _new_browser(p)
         page = await browser.new_page()
         try:
             emit("status", site="brightermonday", msg=f"Navigating to {url}")
@@ -324,7 +336,7 @@ async def _scrape_jobwebkenya_async(query: str, max_results: int) -> list[dict]:
     emit("status", site="jobwebkenya", msg="Launching headless Chromium...")
     jobs = []
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await _new_browser(p)
         page = await browser.new_page()
         try:
             emit("status", site="jobwebkenya", msg=f"Searching jobwebkenya.com for '{query}'...")
@@ -415,7 +427,7 @@ async def _scrape_remotive_browser(query: str, max_results: int) -> list[dict]:
     jobs = []
     url = f"https://remotive.com/remote-jobs?search={query.replace(' ', '+')}"
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await _new_browser(p)
         page = await browser.new_page()
         try:
             await page.goto(url, timeout=30000)
