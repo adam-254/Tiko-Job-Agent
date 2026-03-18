@@ -232,4 +232,4 @@ MIT — do whatever you want with it.
 
 ---
 
-Built with 🤖 by Tiko
+Built with 🤖 by VIncent O. Adam

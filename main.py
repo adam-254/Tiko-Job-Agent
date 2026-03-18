@@ -1,6 +1,9 @@
 import json
 import queue
 import threading
+import csv
+import io
+from datetime import datetime
 from flask import Flask, request, jsonify, render_template, Response, stream_with_context
 from agent import parse_and_run, get_jobs
 import browser as browser_module
@@ -76,6 +79,30 @@ def search_stream():
     return Response(stream_with_context(generate()),
                     mimetype="text/event-stream",
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/export")
+def export_csv():
+    """Returns current job list as a CSV file download."""
+    jobs = get_jobs()
+    if not jobs:
+        return jsonify({"error": "No jobs to export"}), 400
+
+    output = io.StringIO()
+    writer = csv.DictWriter(
+        output,
+        fieldnames=["title", "company", "link", "source", "date"],
+        extrasaction="ignore"
+    )
+    writer.writeheader()
+    writer.writerows(jobs)
+
+    filename = f"tiko-jobs-{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+    return Response(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 if __name__ == "__main__":

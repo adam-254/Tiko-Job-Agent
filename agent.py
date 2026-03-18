@@ -193,9 +193,8 @@ def parse_and_run(user_input: str) -> str:
     # --- SAVE / EXPORT intent ---
     if re.search(r"save|export", text):
         if not _jobs:
-            return "Nothing to save yet."
-        filename = _save_results(_jobs)
-        return f"Saved {len(_jobs)} jobs to {filename}"
+            return "Nothing to save yet. Run a search first."
+        return f"__export__{len(_jobs)}"
 
     # --- CLEAR / RESET intent ---
     if re.search(r"clear|reset|start over|new search", text):

@@ -387,7 +387,14 @@ async function sendMessage() {
     });
     const data = await res.json();
     thinkRow.remove();
-    addMsg(data.reply, 'agent');
+    if (data.reply && data.reply.startsWith('__export__')) {
+      const count = data.reply.split('__export__')[1];
+      const ts = new Date().toISOString().replace(/[:.]/g,'-').slice(0,19);
+      const fname = `tiko-jobs-${ts}.csv`;
+      addMsg(`Ready to download ${count} jobs — <a href="/export" download="${fname}" style="color:var(--accent);text-decoration:underline">📥 Save ${fname}</a>`, 'agent');
+    } else {
+      addMsg(data.reply, 'agent');
+    }
   } catch {
     thinkRow.remove();
     addMsg('Connection error.', 'agent');
