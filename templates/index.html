@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Tiko — Job Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/index.css"/>
+</head>
+<body>
+<div class="app">
+
+  <!-- Topbar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="logo-mark">🤖</div>
+      <div>
+        <div class="app-name">Tiko Job Agent</div>
+        <div class="app-sub">myjobmag · remotive · weworkremotely</div>
+      </div>
+    </div>
+    <div class="topbar-right">
+      <div class="pill" id="status-pill">
+        <div class="pill-dot" id="status-dot"></div>
+        <span id="status-text">Ready</span>
+      </div>
+      <button class="icon-btn" title="Clear all" onclick="clearAll()">🗑</button>
+      <button class="icon-btn" title="Help" onclick="quickSend('help')">❓</button>
+    </div>
+  </header>
+
+  <div class="main">
+
+    <!-- RIGHT: Chat -->
+    <div class="chat-pane">
+      <div class="chat-pane-header">Chat</div>
+
+      <div id="chat"></div>
+
+      <!-- Quick chips -->
+      <div class="chips">
+        <span class="chip" onclick="quickSend('find internship jobs in Kenya')">🇰🇪 Internships KE</span>
+        <span class="chip" onclick="quickSend('find software engineer jobs remote')">💻 Remote Dev</span>
+        <span class="chip" onclick="quickSend('find data analyst jobs in Nairobi')">📊 Data Nairobi</span>
+        <span class="chip" onclick="quickSend('find NGO jobs in Kenya')">🌍 NGO Kenya</span>
+        <span class="chip" onclick="quickSend('find graduate jobs in Kenya')">🎓 Graduate</span>
+        <span class="chip" onclick="quickSend('summary')">📈 Summary</span>
+      </div>
+
+      <div class="chat-input-area">
+        <div class="input-row">
+          <input id="user-input" type="text" placeholder="find internship jobs in Kenya..." autocomplete="off" autofocus/>
+          <button class="send-btn" onclick="sendMessage()">➤</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Agent activity pane -->
+    <div class="agent-pane">
+
+      <!-- Site tabs -->
+      <div class="site-tabs" id="site-tabs">
+        <div class="site-tab active" id="tab-all" onclick="filterSite('all')">
+          <div class="tab-dot"></div> All Sources
+          <span class="tab-count" id="count-all">0</span>
+        </div>
+        <div class="site-tab" id="tab-myjobmag" onclick="filterSite('myjobmag')">
+          <div class="tab-dot"></div> MyJobMag KE
+          <span class="tab-count" id="count-myjobmag">0</span>
+        </div>
+        <div class="site-tab" id="tab-brightermonday" onclick="filterSite('brightermonday')">
+          <div class="tab-dot"></div> BrighterMonday
+          <span class="tab-count" id="count-brightermonday">0</span>
+        </div>
+        <div class="site-tab" id="tab-jobwebkenya" onclick="filterSite('jobwebkenya')">
+          <div class="tab-dot"></div> JobWebKenya
+          <span class="tab-count" id="count-jobwebkenya">0</span>
+        </div>
+        <div class="site-tab" id="tab-remotive" onclick="filterSite('remotive')">
+          <div class="tab-dot"></div> Remotive
+          <span class="tab-count" id="count-remotive">0</span>
+        </div>
+        <div class="site-tab" id="tab-weworkremotely" onclick="filterSite('weworkremotely')">
+          <div class="tab-dot"></div> WeWorkRemotely
+          <span class="tab-count" id="count-weworkremotely">0</span>
+        </div>
+      </div>
+
+      <!-- Activity log -->
+      <div class="activity-log idle" id="activity-log">
+        <span id="activity-text">Waiting for a search command...</span>
+      </div>
+
+      <!-- Progress bar -->
+      <div class="progress-bar-wrap">
+        <div class="progress-bar" id="progress-bar"></div>
+      </div>
+
+      <!-- Results -->
+      <div class="results-area" id="results-area">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-icon">🔍</div>
+          <div>No results yet</div>
+          <div style="font-size:0.72rem;color:var(--text-muted)">Try: <em>find internship jobs in Kenya</em></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────
+const allJobs = [];       // raw buffer, arrival order
+let activeFilter = 'all';
+let sseSource = null;
+let jobCounter = 0;
+const siteCounts = { myjobmag: 0, remotive: 0, weworkremotely: 0, adzuna: 0, brightermonday: 0, jobwebkenya: 0 };
+const sitesDone = new Set();
+
+// ── DOM refs ───────────────────────────────────────────────────────
+const chatEl       = document.getElementById('chat');
+const inputEl      = document.getElementById('user-input');
+const activityEl   = document.getElementById('activity-log');
+const activityText = document.getElementById('activity-text');
+const progressBar  = document.getElementById('progress-bar');
+const resultsArea  = document.getElementById('results-area');
+const emptyState   = document.getElementById('empty-state');
+const statusDot    = document.getElementById('status-dot');
+const statusText   = document.getElementById('status-text');
+
+// ── Helpers ────────────────────────────────────────────────────────
+const now = () => new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+
+function setStatus(busy, label) {
+  statusDot.className = 'pill-dot' + (busy ? ' busy' : '');
+  statusText.textContent = label;
+}
+
+function setActivity(msg, busy = true) {
+  activityEl.className = 'activity-log' + (busy ? '' : ' idle');
+  activityEl.innerHTML = busy
+    ? `<div class="spinner"></div><span>${msg}</span>`
+    : `<span>${msg}</span>`;
+}
+
+function updateTabCount(site, n) {
+  const el = document.getElementById(`count-${site}`);
+  if (el) el.textContent = n;
+  document.getElementById(`count-all`).textContent = allJobs.length;
+}
+
+function setTabState(site, state) {
+  const tab = document.getElementById(`tab-${site}`);
+  if (!tab) return;
+  tab.className = `site-tab ${state}`;
+}
+
+function setProgress(pct) {
+  progressBar.style.width = pct + '%';
+}
+
+// ── Chat ───────────────────────────────────────────────────────────
+function addMsg(text, role) {
+  const isAgent = role !== 'user';
+  const row = document.createElement('div');
+  row.className = `msg-row ${isAgent ? 'agent' : 'user'}`;
+
+  const av = document.createElement('div');
+  av.className = `av ${isAgent ? 'bot' : 'user'}`;
+  av.textContent = isAgent ? '🤖' : '👤';
+
+  const col = document.createElement('div');
+  const bubble = document.createElement('div');
+  bubble.className = 'bubble';
+
+  if (role === 'thinking') {
+    bubble.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+  } else {
+    bubble.innerHTML = text.replace(/(https?:\/\/[^\s<]+)/g,
+      '<a href="$1" target="_blank" rel="noopener">$1</a>');
+  }
+
+  const ts = document.createElement('div');
+  ts.className = 'msg-time';
+  ts.textContent = now();
+
+  col.appendChild(bubble);
+  col.appendChild(ts);
+  row.appendChild(av);
+  row.appendChild(col);
+  chatEl.appendChild(row);
+  chatEl.scrollTop = chatEl.scrollHeight;
+  return row;
+}
+
+// ── Recency scoring ────────────────────────────────────────────────
+function recencyScore(dateStr) {
+  if (!dateStr) return 9999;
+  const s = dateStr.toLowerCase();
+  const n = parseInt(s) || 1;
+  if (s.includes('hour'))  return n / 24;
+  if (s.includes('day'))   return n;
+  if (s.includes('week'))  return n * 7;
+  if (s.includes('month')) return n * 30;
+  if (s.includes('new') || s.includes('today') || s.includes('just')) return 0;
+  return 9999; // unknown = push to end
+}
+
+function sortedJobs() {
+  return [...allJobs].sort((a, b) => recencyScore(a.date) - recencyScore(b.date));
+}
+
+// ── Job cards ──────────────────────────────────────────────────────
+function renderJobCard(job, idx) {
+  const card = document.createElement('div');
+  card.className = 'job-card';
+  card.dataset.source = job.source;
+  card.dataset.idx = idx;
+
+  const dateTag = job.date ? `<span class="tag date">🕐 ${job.date}</span>` : '';
+
+  card.innerHTML = `
+    <div class="job-num">#${idx}</div>
+    <div class="job-body">
+      <a class="job-title" href="${job.link}" target="_blank" rel="noopener">${job.title}</a>
+      <div class="job-company">🏢 ${job.company}</div>
+      <div class="job-meta">
+        <span class="tag ${job.source}">${job.source}</span>
+        ${dateTag}
+        <span class="tag status-tag" id="status-${idx}"></span>
+      </div>
+    </div>
+    <div class="job-actions">
+      <button class="job-action-btn" title="Mark interested" onclick="markJob(${idx},'interested')">⭐</button>
+      <button class="job-action-btn" title="Mark applied"    onclick="markJob(${idx},'applied')">✅</button>
+      <button class="job-action-btn" title="Skip"           onclick="markJob(${idx},'skip')">✕</button>
+    </div>`;
+  return card;
+}
+
+function rerenderResults() {
+  resultsArea.innerHTML = '';
+  jobCounter = 0;
+  const sorted = sortedJobs();
+  for (const job of sorted) {
+    jobCounter++;
+    const card = renderJobCard(job, jobCounter);
+    if (activeFilter !== 'all' && job.source !== activeFilter) card.style.display = 'none';
+    resultsArea.appendChild(card);
+  }
+}
+
+function addJobCard(job) {
+  allJobs.push(job);
+  siteCounts[job.source] = (siteCounts[job.source] || 0) + 1;
+  updateTabCount(job.source, siteCounts[job.source]);
+  updateTabCount('all', allJobs.length);
+  if (emptyState.parentNode) emptyState.remove();
+
+  // live append during streaming (unsorted) — will be re-sorted on done
+  jobCounter++;
+  job._liveIdx = jobCounter;
+  const card = renderJobCard(job, jobCounter);
+  if (activeFilter !== 'all' && job.source !== activeFilter) card.style.display = 'none';
+  resultsArea.appendChild(card);
+  resultsArea.scrollTop = resultsArea.scrollHeight;
+}
+
+function markJob(idx, status) {
+  const el = document.getElementById(`status-${idx}`);
+  if (!el) return;
+  const map = { interested: ['⭐ Interested','interested'], applied: ['✅ Applied','applied'], skip: ['✕ Skip','skip'] };
+  const [label, cls] = map[status];
+  el.textContent = label;
+  el.className = `tag status-tag ${cls}`;
+  fetch('/chat', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({message: `mark ${idx} as ${status}`})
+  });
+}
+
+function filterSite(site) {
+  activeFilter = site;
+  document.querySelectorAll('.site-tab').forEach(t => t.classList.remove('active'));
+  const tab = document.getElementById(`tab-${site}`);
+  if (tab) tab.classList.add('active');
+  document.querySelectorAll('.job-card').forEach(card => {
+    card.style.display = (site === 'all' || card.dataset.source === site) ? '' : 'none';
+  });
+}
+
+// ── SSE scraping stream ────────────────────────────────────────────
+function startStream(query) {
+  if (sseSource) { sseSource.close(); sseSource = null; }
+
+  // reset UI
+  allJobs.length = 0;
+  jobCounter = 0;
+  Object.keys(siteCounts).forEach(k => siteCounts[k] = 0);
+  sitesDone.clear();
+  ['myjobmag','brightermonday','jobwebkenya','remotive','weworkremotely','adzuna'].forEach(s => {
+    updateTabCount(s, 0);
+    setTabState(s, '');
+  });
+  updateTabCount('all', 0);
+  resultsArea.innerHTML = '';
+  setProgress(0);
+  setStatus(true, 'Searching...');
+  setActivity(`Starting search for "${query}"...`);
+
+  const url = `/search-stream?q=${encodeURIComponent(query)}`;
+  sseSource = new EventSource(url);
+
+  const SITES = ['myjobmag','brightermonday','jobwebkenya','remotive','weworkremotely'];
+
+  sseSource.onmessage = (e) => {
+    const ev = JSON.parse(e.data);
+
+    if (ev.type === 'status') {
+      setTabState(ev.site, 'active');
+      setActivity(`[${ev.site}] ${ev.msg}`);
+      if (ev.done) {
+        sitesDone.add(ev.site);
+        setTabState(ev.site, ev.error ? 'error' : 'done');
+        const pct = Math.round((sitesDone.size / SITES.length) * 100);
+        setProgress(pct);
+      }
+    }
+
+    if (ev.type === 'job') {
+      addJobCard(ev.job);
+    }
+
+    if (ev.type === 'done') {
+      sseSource.close(); sseSource = null;
+      setProgress(100);
+      // re-render all cards sorted by recency
+      rerenderResults();
+      resultsArea.scrollTop = 0;
+      setStatus(false, `${allJobs.length} jobs found`);
+      setActivity(`Search complete — ${allJobs.length} jobs found · sorted by latest first.`, false);
+    }
+
+    if (ev.type === 'error') {
+      setStatus(false, 'Error');
+      setActivity(`Error: ${ev.msg}`, false);
+    }
+  };
+
+  sseSource.onerror = () => {
+    sseSource.close(); sseSource = null;
+    setStatus(false, 'Disconnected');
+    setActivity('Stream disconnected.', false);
+  };
+}
+
+// ── Send message ───────────────────────────────────────────────────
+async function sendMessage() {
+  const text = inputEl.value.trim();
+  if (!text) return;
+  inputEl.value = '';
+  addMsg(text, 'user');
+
+  const isSearch = /^(find|search|look for|get me|get|show me|any)\b/i.test(text);
+
+  if (isSearch) {
+    // extract query for SSE
+    let q = text.replace(/^(find|search|look for|get me|get|show me|any)\s+(me\s+)?(all\s+)?/i, '').trim();
+    q = q.replace(/\s*(jobs?|positions?|roles?|openings?|internships?)$/i, '').trim();
+    startStream(text);
+    addMsg(`Searching for "${q}" — watch the live feed on the left ←`, 'agent');
+    // tell agent to update its state but skip re-scraping
+    fetch('/chat', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ message: text, skip_search: true })
+    });
+    return;
+  }
+
+  const thinkRow = addMsg('', 'thinking');
+  try {
+    const res = await fetch('/chat', {
+      method: 'POST', headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({message: text})
+    });
+    const data = await res.json();
+    thinkRow.remove();
+    addMsg(data.reply, 'agent');
+  } catch {
+    thinkRow.remove();
+    addMsg('Connection error.', 'agent');
+  }
+}
+
+function quickSend(text) { inputEl.value = text; sendMessage(); }
+
+function clearAll() {
+  chatEl.innerHTML = '';
+  resultsArea.innerHTML = '<div class="empty-state" id="empty-state"><div class="empty-icon">🔍</div><div>No results yet</div></div>';
+  allJobs.length = 0; jobCounter = 0;
+  Object.keys(siteCounts).forEach(k => siteCounts[k] = 0);
+  ['all','myjobmag','brightermonday','jobwebkenya','remotive','weworkremotely'].forEach(s => updateTabCount(s, 0));
+  setProgress(0);
+  setStatus(false, 'Ready');
+  setActivity('Waiting for a search command...', false);
+  fetch('/chat', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:'clear'})});
+  showWelcome();
+}
+
+// ── Welcome ────────────────────────────────────────────────────────
+function showWelcome() {
+  addMsg(`Hey! I'm Tiko 👋
+
+Type a search and watch me scrape jobs live on the right panel.
+
+Try: find internship jobs in Kenya
+Or:  find remote python developer jobs
+
+Other commands: filter · show jobs · mark 3 as applied · summary · save`, 'agent');
+}
+
+inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+showWelcome();
+</script>
+</body>
+</html>
