@@ -1,5 +1,7 @@
 # Tiko — AI Job Hunting Agent
 
+**Live demo:** https://tiko-job-agent.onrender.com
+
 Tiko is a local web app that scrapes multiple job boards simultaneously, streams results to your browser in real time, and lets you chat with an agent to search, filter, track, and export jobs — all without leaving one tab.
 
 ![Tiko UI](https://i.imgur.com/placeholder.png)
