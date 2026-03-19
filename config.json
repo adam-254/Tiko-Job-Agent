@@ -1,7 +1,7 @@
 {
   "job_titles": ["python developer", "backend engineer", "software engineer"],
   "locations": ["remote", "Berlin", "London", "Kenya", "Nairobi"],
-  "sites": ["myjobmag", "brightermonday", "jobwebkenya", "remotive", "weworkremotely"],
+  "sites": ["myjobmag", "brightermonday", "jobwebkenya", "fuzu", "remotive", "weworkremotely"],
   "max_results_per_site": 20,
   "output_dir": "results",
   "api_key": "",

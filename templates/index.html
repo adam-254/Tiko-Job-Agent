@@ -85,6 +85,10 @@
           <div class="tab-dot"></div> WeWorkRemotely
           <span class="tab-count" id="count-weworkremotely">0</span>
         </div>
+        <div class="site-tab" id="tab-fuzu" onclick="filterSite('fuzu')">
+          <div class="tab-dot"></div> Fuzu KE
+          <span class="tab-count" id="count-fuzu">0</span>
+        </div>
       </div>
 
       <!-- Activity log -->
@@ -116,7 +120,7 @@ const allJobs = [];       // raw buffer, arrival order
 let activeFilter = 'all';
 let sseSource = null;
 let jobCounter = 0;
-const siteCounts = { myjobmag: 0, remotive: 0, weworkremotely: 0, adzuna: 0, brightermonday: 0, jobwebkenya: 0 };
+const siteCounts = { myjobmag: 0, remotive: 0, weworkremotely: 0, adzuna: 0, brightermonday: 0, jobwebkenya: 0, fuzu: 0 };
 const sitesDone = new Set();
 
 // ── DOM refs ───────────────────────────────────────────────────────
@@ -300,7 +304,7 @@ function startStream(query) {
   jobCounter = 0;
   Object.keys(siteCounts).forEach(k => siteCounts[k] = 0);
   sitesDone.clear();
-  ['myjobmag','brightermonday','jobwebkenya','remotive','weworkremotely','adzuna'].forEach(s => {
+  ['myjobmag','brightermonday','jobwebkenya','fuzu','remotive','weworkremotely','adzuna'].forEach(s => {
     updateTabCount(s, 0);
     setTabState(s, '');
   });
@@ -313,7 +317,7 @@ function startStream(query) {
   const url = `/search-stream?q=${encodeURIComponent(query)}`;
   sseSource = new EventSource(url);
 
-  const SITES = ['myjobmag','brightermonday','jobwebkenya','remotive','weworkremotely'];
+  const SITES = ['myjobmag','brightermonday','jobwebkenya','fuzu','remotive','weworkremotely'];
 
   sseSource.onmessage = (e) => {
     const ev = JSON.parse(e.data);
@@ -408,7 +412,7 @@ function clearAll() {
   resultsArea.innerHTML = '<div class="empty-state" id="empty-state"><div class="empty-icon">🔍</div><div>No results yet</div></div>';
   allJobs.length = 0; jobCounter = 0;
   Object.keys(siteCounts).forEach(k => siteCounts[k] = 0);
-  ['all','myjobmag','brightermonday','jobwebkenya','remotive','weworkremotely'].forEach(s => updateTabCount(s, 0));
+  ['all','myjobmag','brightermonday','jobwebkenya','fuzu','remotive','weworkremotely'].forEach(s => updateTabCount(s, 0));
   setProgress(0);
   setStatus(false, 'Ready');
   setActivity('Waiting for a search command...', false);

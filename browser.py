@@ -421,6 +421,56 @@ async def _scrape_jobwebkenya_playwright(query: str, max_results: int) -> list[d
 
 
 # ---------------------------------------------------------------------------
+# Fuzu Kenya — requests + BeautifulSoup
+# ---------------------------------------------------------------------------
+FUZU_BASE = "https://www.fuzu.com"
+
+
+def scrape_fuzu(query: str, max_results: int = 20) -> list[dict]:
+    url = f"{FUZU_BASE}/kenya/jobs?q={query.replace(' ', '+')}"
+    emit("status", site="fuzu", msg="Fetching fuzu.com/kenya/jobs...")
+    jobs = []
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        resp.raise_for_status()
+        soup = BeautifulSoup(resp.text, "html.parser")
+        links = soup.select('a[href*="/kenya/jobs/"]')
+        emit("status", site="fuzu", msg=f"Parsing {len(links)} listings...")
+        kw_words = [w for w in query.lower().split() if len(w) > 3 and w not in
+                    ("jobs", "role", "position", "vacancy", "kenya", "nairobi", "remote")]
+        seen = set()
+        for a in links:
+            try:
+                href = a.get("href", "")
+                link = href if href.startswith("http") else f"{FUZU_BASE}{href}"
+                if link in seen:
+                    continue
+                seen.add(link)
+                # card text: "Company|Title|Location|•|Kenya|Only on Fuzu"
+                noise = {"•", "only on fuzu", "kenya"}
+                parts = [p.strip() for p in a.get_text(separator="|", strip=True).split("|")
+                         if p.strip() and p.strip().lower() not in noise]
+                if len(parts) < 2:
+                    continue
+                company = parts[0]
+                title = parts[1]
+                location = parts[2] if len(parts) > 2 else ""
+                # Fuzu search already filters by query — skip keyword filter to avoid false negatives
+                job = {"title": title, "company": company, "link": link,
+                       "source": "fuzu", "date": location}
+                jobs.append(job)
+                emit("job", site="fuzu", job=job)
+                if len(jobs) >= max_results:
+                    break
+            except Exception:
+                continue
+    except Exception as e:
+        emit("status", site="fuzu", msg=f"Error: {e}", error=True)
+    emit("status", site="fuzu", msg=f"Done — {len(jobs)} jobs found.", done=True)
+    return jobs
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 def scrape_jobs(query: str, sites: list[str], max_results: int = 20, config: dict = None) -> list[dict]:
@@ -437,6 +487,8 @@ def scrape_jobs(query: str, sites: list[str], max_results: int = 20, config: dic
         all_jobs.extend(scrape_remotive(query, max_results))
     if "weworkremotely" in sites:
         all_jobs.extend(scrape_weworkremotely(query, max_results))
+    if "fuzu" in sites:
+        all_jobs.extend(scrape_fuzu(query, max_results))
     if "adzuna" in sites:
         all_jobs.extend(scrape_adzuna(query, max_results,
             app_id=config.get("adzuna_app_id", ""),

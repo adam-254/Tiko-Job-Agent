@@ -28,6 +28,7 @@ Most job boards make you search each site separately, deal with duplicate listin
 | [MyJobMag Kenya](https://www.myjobmag.co.ke) | Playwright (headless) | Internships, local Kenyan roles |
 | [BrighterMonday](https://www.brightermonday.co.ke) | Playwright (headless) | Largest Kenyan board, 2000+ listings |
 | [JobWebKenya](https://jobwebkenya.com) | Playwright (headless) | NGO, corporate, graduate roles |
+| [Fuzu Kenya](https://www.fuzu.com/kenya/jobs) | HTML scraper | Kenyan & African roles, internships |
 | [Remotive](https://remotive.com) | JSON API | Remote-first global tech jobs |
 | [WeWorkRemotely](https://weworkremotely.com) | RSS feed | Remote programming & design jobs |
 
@@ -177,7 +178,7 @@ Edit `config.json` to customise behaviour:
 {
   "job_titles": ["python developer", "backend engineer"],
   "locations": ["remote", "Nairobi", "Kenya"],
-  "sites": ["myjobmag", "brightermonday", "jobwebkenya", "remotive", "weworkremotely"],
+  "sites": ["myjobmag", "brightermonday", "jobwebkenya", "fuzu", "remotive", "weworkremotely"],
   "max_results_per_site": 20,
   "output_dir": "results",
   "adzuna_app_id": "",
