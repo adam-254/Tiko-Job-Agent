@@ -2,6 +2,7 @@ import asyncio
 import re
 import requests
 import xml.etree.ElementTree as ET
+from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 
 # Optional emit callback — set by main.py before scraping
@@ -15,32 +16,28 @@ def emit(type: str, **kwargs):
     if _emit:
         _emit({"type": type, **kwargs})
 
+HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/122.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+}
+
 # Chromium args — tuned for low-memory containerised envs (Render free tier ~512MB)
 CHROMIUM_ARGS = [
-    "--no-sandbox",
-    "--disable-setuid-sandbox",
-    "--disable-dev-shm-usage",
-    "--disable-gpu",
-    "--single-process",
-    "--disable-extensions",
-    "--disable-background-networking",
-    "--disable-default-apps",
-    "--disable-sync",
-    "--disable-translate",
-    "--hide-scrollbars",
-    "--metrics-recording-only",
-    "--mute-audio",
-    "--no-first-run",
-    "--safebrowsing-disable-auto-update",
-    "--js-flags=--max-old-space-size=256",
+    "--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage",
+    "--disable-gpu", "--single-process", "--disable-extensions",
+    "--disable-background-networking", "--disable-default-apps",
+    "--disable-sync", "--disable-translate", "--hide-scrollbars",
+    "--metrics-recording-only", "--mute-audio", "--no-first-run",
+    "--safebrowsing-disable-auto-update", "--js-flags=--max-old-space-size=256",
 ]
 
 async def _new_browser(p):
-    return await p.chromium.launch(
-        headless=True,
-        args=CHROMIUM_ARGS,
-        timeout=60000,
-    )
+    return await p.chromium.launch(headless=True, args=CHROMIUM_ARGS, timeout=60000)
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +146,7 @@ def scrape_adzuna(query: str, max_results: int = 20, app_id: str = "", app_key: 
 
 
 # ---------------------------------------------------------------------------
-# MyJobMag Kenya — Playwright scraper
+# MyJobMag Kenya — requests + BeautifulSoup (primary), Playwright fallback
 # ---------------------------------------------------------------------------
 MYJOBMAG_CATEGORIES = {
     "internship": "internships-volunteering", "intern": "internships-volunteering",
@@ -168,78 +165,57 @@ MYJOBMAG_CATEGORIES = {
 BASE_URL = "https://www.myjobmag.co.ke"
 
 
-async def _scrape_myjobmag_page(page, url: str, query: str, max_results: int) -> list[dict]:
+def _parse_myjobmag_html(html: str, query: str, max_results: int) -> list[dict]:
     jobs = []
-    kw = query.lower()
-    kw_words = [w for w in kw.split() if len(w) > 3 and w not in
+    kw_words = [w for w in query.lower().split() if len(w) > 3 and w not in
                 ("jobs", "role", "position", "vacancy", "kenya", "nairobi", "remote")]
-    emit("status", site="myjobmag", msg=f"Navigating to {url}")
-    try:
-        await page.goto(url, timeout=45000)
-        await page.wait_for_timeout(3000)
-        items = await page.query_selector_all("ul.job-list > li")
-        emit("status", site="myjobmag", msg=f"Found {len(items)} listings, filtering for '{query}'...")
-        for item in items[:max_results * 2]:
-            try:
-                title_el = await item.query_selector("li.mag-b h2 a")
-                company_img = await item.query_selector("li.job-logo img")
-                date_el = await item.query_selector("li#job-date")
-                if not title_el:
-                    continue
-                title = (await title_el.inner_text()).strip()
-                href = await title_el.get_attribute("href") or ""
-                link = f"{BASE_URL}{href}" if href.startswith("/") else href
-                company = (await company_img.get_attribute("alt") or "N/A").replace(" logo", "").strip() if company_img else "N/A"
-                date = (await date_el.inner_text()).strip() if date_el else ""
-                if kw_words and not any(w in title.lower() for w in kw_words):
-                    continue
-                job = {"title": title, "company": company, "link": link,
-                       "source": "myjobmag", "date": date}
-                jobs.append(job)
-                emit("job", site="myjobmag", job=job)
-                if len(jobs) >= max_results:
-                    break
-            except Exception:
+    soup = BeautifulSoup(html, "html.parser")
+    for li in soup.select("ul.job-list > li"):
+        try:
+            title_el = li.select_one("li.mag-b h2 a")
+            if not title_el:
                 continue
-    except Exception as e:
-        emit("status", site="myjobmag", msg=f"Page error: {e}", error=True)
-    return jobs
-
-
-async def _scrape_myjobmag_async(query: str, max_results: int) -> list[dict]:
-    kw = query.lower()
-    category = next((slug for word, slug in MYJOBMAG_CATEGORIES.items() if word in kw), None)
-    emit("status", site="myjobmag", msg="Launching headless Chromium...")
-    jobs = []
-    try:
-        async with async_playwright() as p:
-            browser = await _new_browser(p)
-            page = await browser.new_page()
-            try:
-                url = f"{BASE_URL}/jobs-by-field/{category}" if category else f"{BASE_URL}/jobs"
-                jobs = await _scrape_myjobmag_page(page, url, query, max_results)
-                if not jobs:
-                    emit("status", site="myjobmag", msg="No category match, trying main listing...")
-                    jobs = await _scrape_myjobmag_page(page, f"{BASE_URL}/jobs", query, max_results)
-            finally:
-                await browser.close()
-    except Exception as e:
-        emit("status", site="myjobmag", msg=f"Chromium launch failed: {e}", error=True)
-        return []
-    emit("status", site="myjobmag", msg=f"Done — {len(jobs)} jobs found.", done=True)
+            title = title_el.get_text(strip=True)
+            href = title_el.get("href", "")
+            link = f"{BASE_URL}{href}" if href.startswith("/") else href
+            company_img = li.select_one("li.job-logo img")
+            company = (company_img.get("alt", "N/A") or "N/A").replace(" logo", "").strip() if company_img else "N/A"
+            date_el = li.select_one("li#job-date")
+            date = date_el.get_text(strip=True) if date_el else ""
+            if kw_words and not any(w in title.lower() for w in kw_words):
+                continue
+            jobs.append({"title": title, "company": company, "link": link, "source": "myjobmag", "date": date})
+            emit("job", site="myjobmag", job=jobs[-1])
+            if len(jobs) >= max_results:
+                break
+        except Exception:
+            continue
     return jobs
 
 
 def scrape_myjobmag(query: str, max_results: int = 20) -> list[dict]:
+    kw = query.lower()
+    category = next((slug for word, slug in MYJOBMAG_CATEGORIES.items() if word in kw), None)
+    url = f"{BASE_URL}/jobs-by-field/{category}" if category else f"{BASE_URL}/jobs"
+    emit("status", site="myjobmag", msg=f"Fetching myjobmag.co.ke...")
+    jobs = []
     try:
-        return asyncio.run(_scrape_myjobmag_async(query, max_results))
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        resp.raise_for_status()
+        emit("status", site="myjobmag", msg="Parsing listings...")
+        jobs = _parse_myjobmag_html(resp.text, query, max_results)
+        if not jobs and category:
+            emit("status", site="myjobmag", msg="No category results, trying main listing...")
+            resp2 = requests.get(f"{BASE_URL}/jobs", headers=HEADERS, timeout=20)
+            jobs = _parse_myjobmag_html(resp2.text, query, max_results)
     except Exception as e:
-        emit("status", site="myjobmag", msg=f"Fatal error: {e}", error=True)
-        return []
+        emit("status", site="myjobmag", msg=f"Error: {e}", error=True)
+    emit("status", site="myjobmag", msg=f"Done — {len(jobs)} jobs found.", done=True)
+    return jobs
 
 
 # ---------------------------------------------------------------------------
-# BrighterMonday Kenya — Playwright scraper
+# BrighterMonday Kenya — requests + BeautifulSoup (primary), Playwright fallback
 # ---------------------------------------------------------------------------
 BRIGHTERMONDAY_CATEGORIES = {
     "software": "software-data", "developer": "software-data", "data": "software-data",
@@ -261,29 +237,85 @@ BRIGHTERMONDAY_CATEGORIES = {
 BM_BASE = "https://www.brightermonday.co.ke"
 
 
-async def _scrape_brightermonday_async(query: str, max_results: int) -> list[dict]:
+def _parse_brightermonday_html(html: str, query: str, max_results: int) -> list[dict]:
+    jobs = []
+    kw_words = [w for w in query.lower().split() if len(w) > 3 and w not in
+                ("jobs", "role", "position", "vacancy", "kenya", "nairobi", "remote")]
+    soup = BeautifulSoup(html, "html.parser")
+    seen = set()
+    for a in soup.select('a[href*="/listings/"]'):
+        try:
+            title = a.get_text(strip=True)
+            href = a.get("href", "")
+            link = href if href.startswith("http") else f"{BM_BASE}{href}"
+            if not title or len(title) < 3 or link in seen:
+                continue
+            seen.add(link)
+            # walk up to find company/location context
+            parent = a.parent
+            for _ in range(5):
+                if parent and parent.parent:
+                    parent = parent.parent
+                else:
+                    break
+            ctx_lines = [l.strip() for l in (parent.get_text("\n") if parent else "").split("\n") if l.strip()]
+            company = ctx_lines[1] if len(ctx_lines) > 1 else "N/A"
+            location = ctx_lines[2] if len(ctx_lines) > 2 else ""
+            date_str = ""
+            for line in reversed(ctx_lines):
+                if re.search(r'\d+\s+(day|week|month|hour)s?\s+ago|^new$', line, re.I):
+                    date_str = line
+                    break
+            display_date = location + (f" · {date_str}" if date_str else "")
+            if kw_words and not any(w in title.lower() for w in kw_words):
+                continue
+            job = {"title": title, "company": company, "link": link,
+                   "source": "brightermonday", "date": display_date.strip(" ·")}
+            jobs.append(job)
+            emit("job", site="brightermonday", job=job)
+            if len(jobs) >= max_results:
+                break
+        except Exception:
+            continue
+    return jobs
+
+
+def scrape_brightermonday(query: str, max_results: int = 20) -> list[dict]:
+    kw = query.lower()
+    category = next((slug for word, slug in BRIGHTERMONDAY_CATEGORIES.items() if word in kw), None)
+    url = f"{BM_BASE}/jobs/{category}" if category else f"{BM_BASE}/jobs"
+    emit("status", site="brightermonday", msg="Fetching brightermonday.co.ke...")
+    jobs = []
+    try:
+        resp = requests.get(url, headers=HEADERS, timeout=20)
+        resp.raise_for_status()
+        emit("status", site="brightermonday", msg="Parsing listings...")
+        jobs = _parse_brightermonday_html(resp.text, query, max_results)
+        if not jobs:
+            emit("status", site="brightermonday", msg="Trying Playwright fallback...")
+            jobs = asyncio.run(_scrape_brightermonday_playwright(query, max_results))
+    except Exception as e:
+        emit("status", site="brightermonday", msg=f"Error: {e}", error=True)
+    emit("status", site="brightermonday", msg=f"Done — {len(jobs)} jobs found.", done=True)
+    return jobs
+
+
+async def _scrape_brightermonday_playwright(query: str, max_results: int) -> list[dict]:
     kw = query.lower()
     kw_words = [w for w in kw.split() if len(w) > 3 and w not in
                 ("jobs", "role", "position", "vacancy", "kenya", "nairobi", "remote")]
-
     category = next((slug for word, slug in BRIGHTERMONDAY_CATEGORIES.items() if word in kw), None)
     url = f"{BM_BASE}/jobs/{category}" if category else f"{BM_BASE}/jobs"
-
-    emit("status", site="brightermonday", msg="Launching headless Chromium...")
     jobs = []
     seen_links = set()
-
     try:
         async with async_playwright() as p:
             browser = await _new_browser(p)
             page = await browser.new_page()
             try:
-                emit("status", site="brightermonday", msg=f"Navigating to {url}")
                 await page.goto(url, timeout=45000)
                 await page.wait_for_timeout(4000)
                 links = await page.query_selector_all('a[href*="/listings/"]')
-                emit("status", site="brightermonday", msg=f"Found {len(links)} listings, filtering for '{query}'...")
-
                 for lnk in links:
                     if len(jobs) >= max_results:
                         break
@@ -291,165 +323,87 @@ async def _scrape_brightermonday_async(query: str, max_results: int) -> list[dic
                         title = (await lnk.inner_text()).strip()
                         href = await lnk.get_attribute("href") or ""
                         link = href if href.startswith("http") else f"{BM_BASE}{href}"
-
                         if not title or len(title) < 3 or link in seen_links:
                             continue
                         seen_links.add(link)
-
-                        context = await lnk.evaluate('''el => {
-                            let p = el;
-                            for(let i=0;i<5;i++){ p = p.parentElement; if(!p) break; }
-                            return p ? p.innerText.trim() : "";
-                        }''')
-                        lines = [l.strip() for l in context.split("\n") if l.strip()]
-
-                        date_str = ""
-                        for line in reversed(lines):
-                            if re.search(r'\d+\s+(day|week|month|hour)s?\s+ago|^new$', line, re.I):
-                                date_str = line
-                                break
-
-                        company = lines[1] if len(lines) > 1 else "N/A"
-                        location = lines[2] if len(lines) > 2 else ""
-                        job_type = lines[3] if len(lines) > 3 else ""
-                        display_date = f"{location} · {job_type}" + (f" · {date_str}" if date_str else "")
-
                         if kw_words and not any(w in title.lower() for w in kw_words):
                             continue
-
-                        job = {"title": title, "company": company, "link": link,
-                               "source": "brightermonday", "date": display_date.strip(" ·")}
+                        job = {"title": title, "company": "N/A", "link": link,
+                               "source": "brightermonday", "date": ""}
                         jobs.append(job)
                         emit("job", site="brightermonday", job=job)
                     except Exception:
                         continue
-            except Exception as e:
-                emit("status", site="brightermonday", msg=f"Error: {e}", error=True)
             finally:
                 await browser.close()
     except Exception as e:
-        emit("status", site="brightermonday", msg=f"Chromium launch failed: {e}", error=True)
-        return []
-
-    emit("status", site="brightermonday", msg=f"Done — {len(jobs)} jobs found.", done=True)
+        emit("status", site="brightermonday", msg=f"Playwright error: {e}", error=True)
     return jobs
 
 
-def scrape_brightermonday(query: str, max_results: int = 20) -> list[dict]:
-    try:
-        return asyncio.run(_scrape_brightermonday_async(query, max_results))
-    except Exception as e:
-        emit("status", site="brightermonday", msg=f"Fatal: {e}", error=True)
-        return []
-
-
 # ---------------------------------------------------------------------------
-# JobWebKenya — Playwright scraper
+# JobWebKenya — requests + BeautifulSoup (primary), Playwright fallback
 # ---------------------------------------------------------------------------
 JWK_BASE = "https://jobwebkenya.com"
 
 
-async def _scrape_jobwebkenya_async(query: str, max_results: int) -> list[dict]:
-    kw = query.lower()
-    url = f"{JWK_BASE}/?s={query.replace(' ', '+')}"
-    emit("status", site="jobwebkenya", msg="Launching headless Chromium...")
+def _parse_jobwebkenya_html(html: str, query: str, max_results: int) -> list[dict]:
     jobs = []
-
-    try:
-        async with async_playwright() as p:
-            browser = await _new_browser(p)
-            page = await browser.new_page()
-            try:
-                emit("status", site="jobwebkenya", msg=f"Searching jobwebkenya.com for '{query}'...")
-                await page.goto(url, timeout=45000)
-                await page.wait_for_timeout(3000)
-                links = await page.query_selector_all('a[href*="/jobs/"]')
-                emit("status", site="jobwebkenya", msg=f"Found {len(links)} links, filtering...")
-
-                seen = set()
-                for lnk in links:
-                    try:
-                        title = (await lnk.inner_text()).strip()
-                        href = await lnk.get_attribute("href") or ""
-                        if not title or len(title) < 5 or href in seen:
-                            continue
-                        if any(x in href for x in ["facebook", "twitter", "linkedin", "sharer"]):
-                            continue
-                        seen.add(href)
-                        company = "N/A"
-                        if " at " in title:
-                            parts = title.rsplit(" at ", 1)
-                            title_clean = parts[0].strip()
-                            company = parts[1].strip()
-                        else:
-                            title_clean = title
-                        words = [w for w in kw.split() if len(w) > 3]
-                        if words and not any(w in title_clean.lower() or w in company.lower() for w in words):
-                            continue
-                        job = {"title": title_clean, "company": company,
-                               "link": href, "source": "jobwebkenya", "date": ""}
-                        jobs.append(job)
-                        emit("job", site="jobwebkenya", job=job)
-                        if len(jobs) >= max_results:
-                            break
-                    except Exception:
-                        continue
-
-                # fallback: homepage if search returned nothing
-                if not jobs:
-                    emit("status", site="jobwebkenya", msg="No search results, trying homepage...")
-                    await page.goto(JWK_BASE, timeout=45000)
-                    await page.wait_for_timeout(3000)
-                    links2 = await page.query_selector_all('a[href*="/jobs/"]')
-                    seen2 = set()
-                    for lnk in links2:
-                        try:
-                            title = (await lnk.inner_text()).strip()
-                            href = await lnk.get_attribute("href") or ""
-                            if not title or len(title) < 5 or href in seen2:
-                                continue
-                            if any(x in href for x in ["facebook", "twitter", "sharer"]):
-                                continue
-                            seen2.add(href)
-                            company = "N/A"
-                            if " at " in title:
-                                parts = title.rsplit(" at ", 1)
-                                title = parts[0].strip()
-                                company = parts[1].strip()
-                            job = {"title": title, "company": company,
-                                   "link": href, "source": "jobwebkenya", "date": ""}
-                            jobs.append(job)
-                            emit("job", site="jobwebkenya", job=job)
-                            if len(jobs) >= max_results:
-                                break
-                        except Exception:
-                            continue
-            except Exception as e:
-                emit("status", site="jobwebkenya", msg=f"Error: {e}", error=True)
-            finally:
-                await browser.close()
-    except Exception as e:
-        emit("status", site="jobwebkenya", msg=f"Chromium launch failed: {e}", error=True)
-        return []
-
-    emit("status", site="jobwebkenya", msg=f"Done — {len(jobs)} jobs found.", done=True)
+    kw_words = [w for w in query.lower().split() if len(w) > 3]
+    soup = BeautifulSoup(html, "html.parser")
+    seen = set()
+    for a in soup.select('a[href*="/jobs/"]'):
+        try:
+            title = a.get_text(strip=True)
+            href = a.get("href", "")
+            if not title or len(title) < 5 or href in seen:
+                continue
+            if any(x in href for x in ["facebook", "twitter", "linkedin", "sharer"]):
+                continue
+            seen.add(href)
+            company = "N/A"
+            if " at " in title:
+                parts = title.rsplit(" at ", 1)
+                title = parts[0].strip()
+                company = parts[1].strip()
+            if kw_words and not any(w in title.lower() or w in company.lower() for w in kw_words):
+                continue
+            job = {"title": title, "company": company, "link": href, "source": "jobwebkenya", "date": ""}
+            jobs.append(job)
+            emit("job", site="jobwebkenya", job=job)
+            if len(jobs) >= max_results:
+                break
+        except Exception:
+            continue
     return jobs
 
 
 def scrape_jobwebkenya(query: str, max_results: int = 20) -> list[dict]:
-    try:
-        return asyncio.run(_scrape_jobwebkenya_async(query, max_results))
-    except Exception as e:
-        emit("status", site="jobwebkenya", msg=f"Fatal: {e}", error=True)
-        return []
-
-
-# ---------------------------------------------------------------------------
-# Playwright fallback for remotive
-# ---------------------------------------------------------------------------
-async def _scrape_remotive_browser(query: str, max_results: int) -> list[dict]:
+    search_url = f"{JWK_BASE}/?s={query.replace(' ', '+')}"
+    emit("status", site="jobwebkenya", msg="Fetching jobwebkenya.com...")
     jobs = []
-    url = f"https://remotive.com/remote-jobs?search={query.replace(' ', '+')}"
+    try:
+        resp = requests.get(search_url, headers=HEADERS, timeout=20)
+        resp.raise_for_status()
+        emit("status", site="jobwebkenya", msg="Parsing listings...")
+        jobs = _parse_jobwebkenya_html(resp.text, query, max_results)
+        if not jobs:
+            emit("status", site="jobwebkenya", msg="No search results, trying homepage...")
+            resp2 = requests.get(JWK_BASE, headers=HEADERS, timeout=20)
+            jobs = _parse_jobwebkenya_html(resp2.text, query, max_results)
+        if not jobs:
+            emit("status", site="jobwebkenya", msg="Trying Playwright fallback...")
+            jobs = asyncio.run(_scrape_jobwebkenya_playwright(query, max_results))
+    except Exception as e:
+        emit("status", site="jobwebkenya", msg=f"Error: {e}", error=True)
+    emit("status", site="jobwebkenya", msg=f"Done — {len(jobs)} jobs found.", done=True)
+    return jobs
+
+
+async def _scrape_jobwebkenya_playwright(query: str, max_results: int) -> list[dict]:
+    kw = query.lower()
+    url = f"{JWK_BASE}/?s={query.replace(' ', '+')}"
+    jobs = []
     try:
         async with async_playwright() as p:
             browser = await _new_browser(p)
@@ -457,29 +411,12 @@ async def _scrape_remotive_browser(query: str, max_results: int) -> list[dict]:
             try:
                 await page.goto(url, timeout=45000)
                 await page.wait_for_timeout(3000)
-                items = await page.query_selector_all("li.job-list-item, .job-card")
-                for item in items[:max_results]:
-                    try:
-                        title_el = await item.query_selector("h2, h3, [class*='title']")
-                        company_el = await item.query_selector("[class*='company']")
-                        link_el = await item.query_selector("a")
-                        title = (await title_el.inner_text()).strip() if title_el else "N/A"
-                        company = (await company_el.inner_text()).strip() if company_el else "N/A"
-                        href = await link_el.get_attribute("href") if link_el else ""
-                        link = f"https://remotive.com{href}" if href and href.startswith("/") else href
-                        if title != "N/A":
-                            job = {"title": title, "company": company, "link": link,
-                                   "source": "remotive", "date": ""}
-                            jobs.append(job)
-                            emit("job", site="remotive", job=job)
-                    except Exception:
-                        continue
-            except Exception as e:
-                emit("status", site="remotive", msg=f"Browser fallback error: {e}", error=True)
+                html = await page.content()
+                jobs = _parse_jobwebkenya_html(html, query, max_results)
             finally:
                 await browser.close()
     except Exception as e:
-        emit("status", site="remotive", msg=f"Chromium launch failed: {e}", error=True)
+        emit("status", site="jobwebkenya", msg=f"Playwright error: {e}", error=True)
     return jobs
 
 
@@ -497,10 +434,7 @@ def scrape_jobs(query: str, sites: list[str], max_results: int = 20, config: dic
     if "jobwebkenya" in sites:
         all_jobs.extend(scrape_jobwebkenya(query, max_results))
     if "remotive" in sites:
-        jobs = scrape_remotive(query, max_results)
-        if not jobs:
-            jobs = asyncio.run(_scrape_remotive_browser(query, max_results))
-        all_jobs.extend(jobs)
+        all_jobs.extend(scrape_remotive(query, max_results))
     if "weworkremotely" in sites:
         all_jobs.extend(scrape_weworkremotely(query, max_results))
     if "adzuna" in sites:
