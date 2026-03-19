@@ -1,3 +1,5 @@
+#!/home/tos/Tiko-Agent/venv/bin/python3
+# To run: python3 main.py  (deps installed globally via pip3)
 import json
 import queue
 import threading

@@ -59,7 +59,7 @@ source venv/bin/activate
 **2. Install dependencies**
 
 ```bash
-pip install -r requirements.txt
+pip3 install -r requirements.txt
 ```
 
 **3. Install Chromium (one time only)**
@@ -71,8 +71,10 @@ playwright install chromium
 **4. Run the app**
 
 ```bash
-python main.py
+./main.py
 ```
+
+> No virtual environment activation needed — the shebang points directly to the local venv.
 
 **5. Open your browser**
 
