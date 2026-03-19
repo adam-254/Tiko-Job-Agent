@@ -319,3 +319,77 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); }
   color: var(--text-muted); font-size: 0.82rem; text-align: center; padding: 40px;
 }
 .empty-icon { font-size: 2.5rem; opacity: 0.3; }
+
+/* ── Light mode ────────────────────────────────────────────────── */
+html.light {
+  --bg:           #f5f5f7;
+  --surface:      #ffffff;
+  --surface2:     #f0f0f3;
+  --surface3:     #e8e8ed;
+  --border:       #d8d8de;
+  --border2:      #c8c8d0;
+  --accent:       #6c63ff;
+  --accent-dim:   #4e47cc;
+  --accent-glow:  rgba(108,99,255,0.10);
+  --green:        #16a34a;
+  --yellow:       #ca8a04;
+  --red:          #dc2626;
+  --blue:         #2563eb;
+  --orange:       #ea580c;
+  --text:         #111111;
+  --text-dim:     #555555;
+  --text-muted:   #888888;
+}
+
+html.light body { background: var(--bg); }
+
+html.light .msg-row.agent .bubble {
+  background: #f0f0f3;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html.light .job-card {
+  background: var(--surface);
+  border-color: var(--border);
+}
+html.light .job-card:hover {
+  background: var(--surface2);
+  border-color: var(--accent);
+}
+
+html.light .tag.myjobmag       { background: rgba(234,88,12,0.08);   color: #c2410c; }
+html.light .tag.brightermonday { background: rgba(147,51,234,0.08);  color: #7c3aed; }
+html.light .tag.jobwebkenya    { background: rgba(13,148,136,0.08);  color: #0f766e; }
+html.light .tag.remotive       { background: rgba(37,99,235,0.08);   color: #1d4ed8; }
+html.light .tag.weworkremotely { background: rgba(22,163,74,0.08);   color: #15803d; }
+html.light .tag.fuzu           { background: rgba(2,132,199,0.08);   color: #0369a1; }
+html.light .tag.adzuna         { background: rgba(202,138,4,0.08);   color: #a16207; }
+html.light .tag.date           { background: var(--surface3); color: var(--text-muted); }
+
+html.light .chip {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text-dim);
+}
+html.light .chip:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+html.light .site-tab { color: var(--text-dim); }
+html.light .site-tab:hover { background: var(--surface2); color: var(--text); }
+html.light .site-tab.active { color: var(--accent); }
+html.light .site-tab.done   { color: var(--green); }
+html.light .site-tab.error  { color: var(--red); }
+
+html.light .activity-log { background: var(--surface); }
+html.light .icon-btn { background: var(--surface2); border-color: var(--border); color: var(--text-dim); }
+html.light .icon-btn:hover { background: var(--border2); color: var(--text); }
+html.light .pill { background: var(--surface2); border-color: var(--border); }
+html.light .input-row { background: var(--surface2); border-color: var(--border); }
+html.light .input-row input { color: var(--text); }
+html.light .tab-count { background: var(--surface3); border-color: var(--border); }
+html.light .site-tab.done .tab-count { background: rgba(22,163,74,0.08); border-color: rgba(22,163,74,0.3); color: var(--green); }
+html.light .job-action-btn { background: var(--surface2); border-color: var(--border); }

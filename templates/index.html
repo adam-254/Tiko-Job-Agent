@@ -6,6 +6,8 @@
   <title>Tiko — Job Agent</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg"/>
+  <link rel="shortcut icon" href="/static/favicon.svg"/>
   <link rel="stylesheet" href="/static/index.css"/>
 </head>
 <body>
@@ -14,7 +16,9 @@
   <!-- Topbar -->
   <header class="topbar">
     <div class="topbar-left">
-      <div class="logo-mark">🤖</div>
+      <div class="logo-mark">
+        <img src="/static/logo.svg" alt="Tiko logo" width="32" height="32" style="border-radius:9px;display:block;"/>
+      </div>
       <div>
         <div class="app-name">Tiko Job Agent</div>
         <div class="app-sub">myjobmag · remotive · weworkremotely</div>
@@ -25,6 +29,7 @@
         <div class="pill-dot" id="status-dot"></div>
         <span id="status-text">Ready</span>
       </div>
+      <button class="icon-btn" id="theme-toggle" title="Toggle light/dark mode" onclick="toggleTheme()">🌙</button>
       <button class="icon-btn" title="Clear all" onclick="clearAll()">🗑</button>
       <button class="icon-btn" title="Help" onclick="quickSend('help')">❓</button>
     </div>
@@ -430,6 +435,18 @@ Try: find internship jobs in Kenya
 Or:  find remote python developer jobs
 
 Other commands: filter · show jobs · mark 3 as applied · summary · save`, 'agent');
+}
+
+// ── Theme ──────────────────────────────────────────────────────────
+function toggleTheme() {
+  const isLight = document.documentElement.classList.toggle('light');
+  document.getElementById('theme-toggle').textContent = isLight ? '☀️' : '🌙';
+  localStorage.setItem('tiko-theme', isLight ? 'light' : 'dark');
+}
+// restore saved theme
+if (localStorage.getItem('tiko-theme') === 'light') {
+  document.documentElement.classList.add('light');
+  document.getElementById('theme-toggle').textContent = '☀️';
 }
 
 inputEl.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
